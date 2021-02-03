@@ -10,7 +10,7 @@ A continuación, se presenta un ejercicio práctico de aplicación de la metodol
 
 El método de Diferencias en Diferencias con Control Sintético aprovecha la existencia de variables que puedan estar relacionadas con una variable o indicador de resultado para construir una combinación lineal de unidades no tratadas (controles) que explique de forma razonable el comportamiento de una unidad intervenida, esto para luego utilizar esa combinación lineal para construir el contrafactual con que se medirá el efecto de una intervención en el periodo posterior al tratamiento.
 
-![](D:/Econometria Consultores/CRC Mercados Relevantes/Control Sintetico/Imagen1.png)
+![](D:/Econometria Consultores/CRC Mercados Relevantes/Control Sintetico/Imagen1.png) #perdir imagen
 
 El uso de la metodología de control sintético para la construcción del contrafactual resulta especialmente apropiado cuando existe una limitación en el número de las unidades tratadas, requiere que la unidad tratada y las no tratadas (control) sean similares en los determinantes de la variable de resultado, y logra mejores resultados en la medida en que se disponga de un mayor número de variables predictores de la variable de resultado. 
 
