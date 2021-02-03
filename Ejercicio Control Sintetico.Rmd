@@ -1,0 +1,296 @@
+---
+title: "Ejercicio Control Sintético Operadores Móviles"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+A continuación, se presenta un ejercicio práctico de aplicación de la metodología de diferencias en diferencias con control sintético para evaluar el impacto de una medida regulatoria del sector de telecomunicaciones en Colombia, específicamente al caso de la excepción en el pago de -RAN- que aplicó a Avantel S.A.S., en adelante Avantel, entre 2013 y 2017, utilizando informacion a partir de 2015 hasta 2019 y que se describe a continuación.
+
+El método de Diferencias en Diferencias con Control Sintético aprovecha la existencia de variables que puedan estar relacionadas con una variable o indicador de resultado para construir una combinación lineal de unidades no tratadas (controles) que explique de forma razonable el comportamiento de una unidad intervenida, esto para luego utilizar esa combinación lineal para construir el contrafactual con que se medirá el efecto de una intervención en el periodo posterior al tratamiento.
+
+![](D:/Econometria Consultores/CRC Mercados Relevantes/Control Sintetico/Imagen1.png)
+
+El uso de la metodología de control sintético para la construcción del contrafactual resulta especialmente apropiado cuando existe una limitación en el número de las unidades tratadas, requiere que la unidad tratada y las no tratadas (control) sean similares en los determinantes de la variable de resultado, y logra mejores resultados en la medida en que se disponga de un mayor número de variables predictores de la variable de resultado. 
+
+# Ejercicio Práctico
+
+Avantel entró al mercado de voz móvil en 2013 y, para promover la competencia, durante cuatro años se le exceptuó del pago del RAN. Siendo esta una medida que solo aplica a uno de los operadores de voz, en este numeral se explora mediante un modelo de diferencias en diferencias con control sintético el impacto que la finalización de esta medida tuvo sobre las tarifas de la empresa y, por esta vía, sobre el número de abonados y la composición del mercado. 
+
+Con base en lo anterior, se plantea como hipótesis a validar con el ejercicio de diferencias en diferencias con control sintético que, con la finalización del periodo de excepción del pago del RAN, los costos de prestación del servicio de Avantel naturalmente se elevaron y que ello se vio reflejado en un incremento en las tarifas de prestación del servicio de la empresa.
+
+Derivado de lo anterior, se puede esperar que el incremento en las tarifas de Avantel incida sobre su participación en el mercado y que, como consecuencia de ello, los niveles de competencia en el mercado se vean afectados. La magnitud de este segundo impacto dependerá de las elasticidades precio cruzadas.
+
+Por lo tanto, primero se cargarán los paquetes a utilizar en el ejercicio de estimación. En R los sistemas de ecuaciones se estimarán haciendo uso del paquete systemfit.
+```{r echo = T, results = 'hide', warning= FALSE, message=FALSE}
+library(microsynth)              
+library(Synth)
+library(readxl)
+library(lubridate)
+library(reshape)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+```
+
+Se establece el directorio y se carga la base de datos que cuenta con las siguientes variables:
+
+-	Año
+-	Trimestre
+-	Modalidad, prepago o pospago.
+-	ID Proveedor, que corresponde al NIT.
+-	Proveedor, que contiene el nombre del proveedor del servicio.
+-	Abonados, que corresponde con el número de abonados del proveedor, en la modalidad de servicio y trimestre correspondiente
+-	Ingresos Totales, que es la suma de las dos variables siguientes
+-	Ingresos Pospago, que corresponde con los ingresos del proveedor del servicio en el ms correspondiente, por los servicios que presta bajo la modalidad pospago.
+-	Ingresos Prepago, que corresponde con los ingresos del proveedor del servicio en el ms correspondiente, por los servicios que presta bajo la modalidadprepago.
+-	Abonados, que corresponde con el número de abonados del proveedor, en la modalidad de servicio y trimestre correspondiente.
+-	Consumo Prepago on, contiene la información del consumo prepago on net. La información de esta y la siguiente variable se encuentra disponible solo a partir de enero de 2015 y no fue utilizada para los análisis que se presenta en este capítulo.
+-	Consumo prepago off, contiene la información del consumo prepago on net.
+
+
+```{r echo = T, warning= FALSE, message=FALSE}
+setwd("D:/Econometria Consultores/CRC Mercados Relevantes/Control Sintetico")
+abonados<-as.data.frame(read_excel("Tablas para control sintético.xlsx",sheet = "Abonados"))
+arpu<-as.data.frame(read_excel("Tablas para control sintético.xlsx",sheet = "ARPU"))
+```
+
+## Caracterización de las variables
+
+### Abonados
+Para el periodo de interés de este ejercicio (primer trimestre de 2015 al segundo de 2020) en el mercado colombiano de voz móvil se encuentran diez operadores, además de Avantel, ellos son: Éxito Móvil, Colombia Móvil S.A E.S.P., Colombia Telecomunicaciones S.A. E.S.P., Comcel S.A., Empresa de Telecomunicaciones de Bogotá S.A E.S.P. ETB, Logística Flash, Suma Móvil, Uff, UNE-EPM y Virgin. En relación con el mercado atendido por estos operadores, es de mencionar que los seis últimos apenas representan poco más del 5% del total del mercado y que algunas de estas empresas no han estado en el mercado en todo el periodo de interés , por estas razones ellas fueron consideradas en el análisis de manera integrada. 
+
+En el cuadro siguiente se presenta el número de abonados de telefonía móvil en Colombia por operador y la participación que en este mercado ha tenido Avantel.
+
+```{r echo = T, warning= FALSE, message=FALSE}
+subset(abonados, año >=2015)[,c("periodo","Éxito","Avantel","Col. Móvil", "Col. Telecomunicaciones", "Comcel", "Otros")]
+```
+
+Acorde con el crecimiento registrado por Avantel en su número de abonados, la participación de esta empresa en el mercado de voz móvil alcanzó el 3,2% al finalizar su periodo de ajuste al mercado y mostró una leve tendencia creciente hasta el tercer trimestre de 2019, en que llegó al 3,65%. En los últimos tres trimestres la participación de Avantel se redujo, siendo especialmente importante la caída en el segundo trimestre de 2020 en que se regresó a los niveles que se habían registrado a comienzos de 2017.
+
+```{r echo = T, warning= FALSE, message=FALSE}
+abonados$fecha2 <- as.yearqtr(paste0(abonados$año, "-", abonados$trimestre))
+ggplot(abonados, aes(x= fecha2, y = Avantel))+
+  geom_line(aes(y = Avantel))+ scale_x_yearqtr(format = "%YQ%q")+
+  geom_vline(xintercept = abonados$fecha2[9], colour = "red", linetype = "dashed") +
+  ylab("Abonados") + xlab ("Fecha")+ggtitle("Abonados de Avantel")
+```
+
+### ARPU
+Respecto al ingreso promedio por abonado (ARPU ), en la siguiente figura se puede observar el comportamiento que estos han tenido tanto para Avantel, como para los cuatro operadores  que, junto con ella, reúnen poco menos del 95% del mercado de telefonía móvil del país. Al igual que el ARPU de los seis operadores restantes que se han consolidado con la etiqueta “Otros"
+
+```{r, warning= FALSE, message=FALSE}
+arpu$fecha<-1:nrow(arpu)
+arpu$fecha2 <- as.yearqtr(paste0(arpu$año, "-", arpu$trimestre))
+
+## El ejercicio se restringe a años superiores a 2017
+arpu<-subset(arpu, año >= 2017)
+
+
+## Se transfomra la base a una estrucutra panel, haciendo un reshape de la base
+arpu_r<-melt(arpu, id= c("periodo", "año", "trimestre", "fecha", "medida_regulatoria", "fecha2"))
+arpu_r<-rename(arpu_r, empresa = variable, arpu = value )
+arpu_r$empresa<-as.character(arpu_r$empresa)
+arpu_r$n_empresa<-ifelse(arpu_r$empresa == "Avantel", 1, 
+                         ifelse(arpu_r$empresa == "Col. Móvil", 2, 
+                                ifelse(arpu_r$empresa == "Col. Telecomunicaciones", 3,
+                                       ifelse(arpu_r$empresa == "Comcel", 4,
+                                              ifelse(arpu_r$empresa == "Éxito", 5,
+                                                     ifelse(arpu_r$empresa == "Otros", 6,NA))))))
+
+ggplot(arpu_r, aes(x= fecha2, y = arpu/1000, group = empresa))+
+  geom_line(aes(color = empresa))+ scale_x_yearqtr(format = "%YQ%q")+
+  geom_vline(xintercept = arpu$fecha2[20], colour = "red", linetype = "dashed")+
+  geom_vline(xintercept = arpu$fecha2[29], colour = "red", linetype = "dashed")+
+  ylab("ARPU (Miles)") + xlab("Periodo")
+```
+
+El ARPU de Avantel, muestra un claro comportamiento descendente en el periodo de ajuste al mercado que solo se asemeja con el de los demás operadores a partir del año 2017. De 2017 en adelante se aprecia que en general el ARPU de todos los operadores ha mantenido una tendencia a la baja y que, en el caso de Avantel, esto solo deja de suceder en el segundo trimestre de 2020 cuando, como ya se indicó, tuvo una muy importante reducción en su número de abonados.
+
+## Estimación del modelo
+La estimación de los modelos de diferencias en diferencias con control sintético se realizó para analizar el comportamiento tanto del ARPU como del número de suscriptores de Avantel. A continuación, se presentan los resultados obtenidos.
+
+El modelo de control sintético establece que existen J+1 unidades y sólo la primera unidad es afectada por un tratamiento que se supone causa un efecto en la variable de resultado. Por lo tanto, las demás J unidades representan controles disponibles. De esta forma se tienen J posibles controles y $T_{0}$ periodos antes del tratamiento. De esta forma, un control sintético es definido como un vector de tamaño Jx1 de pesos W=($w_{2}$,…,$w_{j+1}$) no negativos de y de suma uno, en donde cada $w_{j}$ representa el peso asignado a cada ciudad de control potencial j.
+
+Así mismo, $X_{1}$ es una vector de tamaño kx1 de características de antes del tratamiento, y la matriz $X_{0}$ de tamaño KxJ contiene las mismas características para las unidades de control. De esta forma, Los valores óptimos $W_{*}$, representan el vector que minimiza la distancia:
+
+<center>
+
+$|| X_{1}-X_{0}W||_{V}=\sqrt{(X_{1}-X_{0}W)^{'}V(X_{1}-X_{0}W)}$
+
+</center>
+
+Sujeto a que $w_{1}+⋯+w_{j}  = 1 $y $w_{j}  >= 0$ . De igual forma, V es una matriz diagonal que pondera las variables en $X_{1}$ y $X_{0}$  determinando su importancia como características relevantes. $V^{*}$ es calculado minimizando el Error cuadrático medio de predicción (MPSE) de las ciudades de control respecto a Los Ángeles durante el periodo anterior a la adquisición, por lo que se minimiza:
+
+<center>
+$(Y_{1}-Y_{0} W^{*}(V))^{'} (Y_{1}-Y_{0} W^{*}(V))$
+</center>
+
+Donde $Y_{1}$ es un vector $T_{0}x1$ de observaciones de la variable de impacto previos al tratamiento en la unidad afectada y $Y_{0}$ es una matriz $T_{0}xJ$ de los precios previos a la adquisición en las ciudades de control. Como resultado, el efecto estimado del tratamiento es:
+
+<center>
+$\alpha_{1t} = Y_{1t}-\sum_{j=2}^{J+1}w_{j}^{*}Y_{jt}$
+</center>
+
+Dos son los supuestos principales del método de diferencias en diferencias con control sintético. El primero de ellos, tal como ya se mencionó, es que los determinantes de la variable resultado sean similares para la unidad tratada y las unidades utilizadas como control. Lo cual es razonable de considerar en lo que respecta al comportamiento esperado de los precios para diferentes agentes que hacen parte de un mismo mercado relevante.
+
+El segundo supuesto es el de la no existencia de efectos de desborde, es decir, que el comportamiento del indicador de interés para las variables de control no se vea afectado de forma indirecta por la intervención a la unidad tratada. Para el ejercicio realizado sobre los precios de Avantel se considera que este supuesto también se cumple en virtud de que la participación de este operador en el mercado de voz apenas supera el 3,0%. 
+
+Por último, es de mencionar que la aplicación de la metodología de diferencias en diferencias con control sintético lleva a mejores resultados en la medida de que se disponga de más información sobre los posibles determinantes de la variable de resultado. Para la aplicación de la metodología al caso de Avantel, esta ha sido la principal limitación, como se discutirá más adelante. 
+
+### ARPU
+Para la estimación del modelo, se utiliza el paquete Synth, de esta forma el primer paso de la estimación consiste en la preparación del modelo, donde: 
+
+- Se indica la unidad tratada y las unidades de control
+- Se indica la variable dependiente o variable de impacto
+- Se indican las variables independientes con las que se construye el control sintético
+- Se indican los periodos pretratamiento y postratamiento.
+
+
+```{r, warning= FALSE, message=FALSE}
+
+
+preparado_arpu<-
+  dataprep(
+    foo = arpu_r, # Se indica la base de datos a usar
+    predictors.op = "mean", #Se indica la función que identifica el nombre del operador que se aplicará a los predictores durante el período de tiempo dado
+    dependent = "arpu", #Corresponde a la variable dependiente 
+    unit.variable = "n_empresa", # Indica la variable que indexa cada una de las unidades
+    time.variable = "fecha", #Indica la variable que indexa cada uno de los periodos de tiempo
+    treatment.identifier = 1, # Identificador de la unidad tratada
+    controls.identifier = 2:6, #Identificadores de las unidades de control
+    time.predictors.prior = c(21:29), # Periodos pretatamiento para los que se va a hacer el promedio de los predictores 
+    time.optimize.ssr = c(21:29), # Años en que se va a minimizar el MSPE [=NULL]
+    unit.names.variable = "empresa", # Nombre de la columna que identifica los nombres de las unidades
+    time.plot = 21:34, #Periodos para los que se generaran graficos
+    predictors = "arpu" # Nombre de la variable dependiente
+  )
+```
+
+Después de establecer el modelo se procede a estimar el control sintético y se calculan las diferencias entre la unidad tratada y el control construido.
+
+```{r, warning= FALSE, message=FALSE, include=FALSE}
+arpu_out<-synth(preparado_arpu)
+
+gaps<- preparado_arpu$Y1plot-(preparado_arpu$Y0plot%*%arpu_out$solution.w)
+gaps<-data.frame( gaps = gaps, fecha = arpu$fecha, fecha2 = arpu$fecha2)
+```
+
+Finalmente, se observan los valores óptimos de la matriz W y la matriz V, que indican la importancia que se le dio a cada unidad de control y a cada variable predictora en la construcción del control sintético. En este caso, se observa que al utilizar solo una variable (ARPU) en la construcción del control sintético   esta obtiene el total del ponderador V. Por parte de las unidades de control, se encuentra que se asigna todo el peso W a Comcel, mostrando que en base al comportamiento del ARPU en el periodo pretratamiento Comcel presenta la mejor aproximación para representar el comportamiento hipotético del ARPU de Avantel en el periodo de tratamiento si este no hubiera obtenido la excepción en el pago de -RAN-.
+
+```{r, warning= FALSE, message=FALSE}
+arpu_tables <- synth.tab(dataprep.res = preparado_arpu, synth.res = arpu_out)
+print(arpu_tables)
+```
+
+Así mismo, se puede apreciar la comparación entre el comportamiento del ARPU de Avantel con el control sintético construido a partir de la información de las demás empresas participantes en el mercado de voz móvil. Allí puede verse que, tras la finalización de la medida que exceptuó a este operador de los cargos de RAN, el comportamiento de su ARPU sigue la tendencia esperada con el control sintético e incluso, que en el segundo semestre de 2019, los precios de los servicios de voz ofrecidos por este operador se redujeron de forma importante frente a lo predicho con dicho control.
+
+```{r, warning= FALSE, message=FALSE}
+arpu_diferencia<- data.frame(Real = arpu$Avantel, Sintetico = preparado_arpu$Y0plot%*%arpu_out$solution.w,
+                             fecha = arpu$fecha, fecha2 =  arpu$fecha2, tratamiento = arpu$medida_regulatoria) 
+
+ggplot() +
+  geom_line(data = arpu_diferencia, aes(x = fecha2, y = Real/1000, colour="darkblue"))+
+  geom_line(data = arpu_diferencia, aes(y = w.weight/1000, x = fecha2, colour="red"))+
+  geom_vline(xintercept = arpu$fecha2[9], colour = "red", linetype = "dashed")+
+  scale_color_discrete(name = " ", labels = c("Avantel", "Sintetico"))+
+  ylab("arpu (Miles)") + xlab("Periodo")
+```
+
+### Abonados
+Para la estimación del control sintético de los abonados se sigue un procedimiento similar. Comenzando con el planteamiento de la estructura de la base en forma de panel.
+
+```{r echo = T, warning= FALSE, message=FALSE}
+abonados$fecha<-1:nrow(abonados)
+abonados$fecha2 <- as.yearqtr(paste0(abonados$año, "-", abonados$trimestre))
+
+## Se limita el ejercicio a años superiores a 2017
+abonados<-subset(abonados, año >= 2017)
+
+## Se establece la estructura panel de los datos
+abonados_r<-melt(abonados, id= c("periodo", "año", "trimestre", "fecha", "medida_regulatoria", "fecha2"))
+abonados_r<-rename(abonados_r, empresa = variable, abonados = value )
+abonados_r$empresa<-as.character(abonados_r$empresa)
+abonados_r$n_empresa<-ifelse(abonados_r$empresa == "Avantel", 1, 
+                             ifelse(abonados_r$empresa == "Col. Móvil", 2, 
+                                    ifelse(abonados_r$empresa == "Col. Telecomunicaciones", 3,
+                                           ifelse(abonados_r$empresa == "Comcel", 4,
+                                                  ifelse(abonados_r$empresa == "Éxito", 5,
+                                                         ifelse(abonados_r$empresa == "Otros", 6,NA))))))
+```
+
+Para luego pasar a la construcción del modelo:
+
+```{r, warning= FALSE, message=FALSE}
+preparado_abonados<-
+  dataprep(
+    foo = abonados_r,  # Se indica la base de datos a usar
+    predictors.op = "mean", #Se indica la función que identifica el nombre del operador que se aplicará a los predictores durante el período de tiempo dado
+    dependent = "abonados", #Corresponde a la variable dependiente 
+    unit.variable = "n_empresa", #Indica la variable que indexa cada una de las unidades
+    time.variable = "fecha", #Indica la variable que indexa cada uno de los periodos de tiempo
+    treatment.identifier = 1, # Identificador de la unidad tratada
+    controls.identifier = 2:6, #Identificadores de las unidades de control
+    time.predictors.prior = c(21:29), # Periodos pretatamiento para los que se va a hacer el promedio de los predictores
+    time.optimize.ssr = c(21:29), # Años en que se va a minimizar el MSPE [=NULL]
+    unit.names.variable = "empresa",  # Nombre de la columna que identifica los nombres de las unidades
+    time.plot = 21:34,#Periodos para los que se generaran graficos
+    predictors = "abonados" # Nombre de la variable dependiente
+  )
+```
+
+Luego se construye el control sintético y se calculan las diferencias respecto a la unidad tratada real (Avantel)
+
+```{r, warning= FALSE, message=FALSE, include=FALSE}
+abonados_out<-synth(preparado_abonados)
+
+gaps<- preparado_abonados$Y1plot-(preparado_abonados$Y0plot%*%abonados_out$solution.w)
+gaps<-data.frame( gaps = gaps, fecha = abonados$fecha, fecha2 = abonados$fecha2)
+```
+
+Finalmente, se observan los valores óptimos de la matriz W y la matriz V, que indican la importancia que se le dio a cada unidad de control y a cada variable predictora en la construcción del control sintético.En este caso, se observa que al utilizar solo una variable (Abonados) en la construcción del control sintético   esta obtiene el total del ponderador V. Por parte de las unidades de control, se encuentra que se asigna la mayoría del peso W a Éxito, con un ponderador de 0,93, seguido de los Otros operadores con 0,028, Colombia Móvil con 0,016, Colombia Telecomunicaciones con 0,013 y Comcel con 0,04.  Mostrando que en base al comportamiento del número de abonados en el periodo pretratamiento darle una mayor ponderación a Éxito presenta la mejor aproximación para representar el comportamiento hipotético del ARPU de Avantel en el periodo de tratamiento si este no hubiera obtenido la excepción en el pago de -RAN-.
+
+```{r, warning= FALSE, message=FALSE}
+abonados_tables <- synth.tab(dataprep.res = preparado_abonados, synth.res = abonados_out)
+print(abonados_tables)
+```
+
+Como puede verse a continuación, los resultados obtenidos sobre el comportamiento del ARPU de Avantel resultan consistentes con lo observado para su número de suscriptores. En el numeral anterior se mostró cómo la finalización del periodo en que este operador se vio exceptuado del pago del RAN no tuvo efecto sobre sus tarifas. Por su parte, en la figura siguiente se puede apreciar cómo el número de abonados también mantiene la tendencia predicha por el control sintético.
+
+```{r, warning= FALSE, message=FALSE}
+abonados_diferencia<- data.frame(Real = abonados$Avantel, Sintetico = preparado_abonados$Y0plot%*%abonados_out$solution.w,
+                            fecha = abonados$fecha, fecha2 =  abonados$fecha2, tratamiento = abonados$medida_regulatoria) 
+
+ggplot() +
+  geom_line(data = abonados_diferencia, aes(x = fecha2, y = Real/1000, colour="darkblue"))+
+  geom_line(data = abonados_diferencia, aes(y = w.weight/1000, x = fecha2, colour="red"))+
+  geom_vline(xintercept = abonados$fecha2[9], colour = "red", linetype = "dashed")+
+  scale_color_discrete(name = " ", labels = c("Avantel", "Sintetico"))+
+  ylab("Abonados (Miles)") + xlab("Periodo")
+```
+
+En cuanto al comportamiento del número de abonados en el segundo semestre de 2020, este también resulta consistente con la reducción de los precios de los servicios de voz observados para Avantel en ese periodo
+
+# Conclusiones
+
+La primera conclusión que se deriva del ejercicio de diferencias en diferencias con control sintético es el rechazo de la hipótesis planteada. Es decir, no se evidencia que la finalización del periodo de excepción del pago del RAN otorgado a Avantel haya incidido sobre los precios de los servicios de voz móvil prestados por este operador.
+
+En segundo lugar, y en línea con la anterior conclusión, tampoco se evidencia que la finalización de la medida haya incidido en el número de abonados de Avantel y, en consecuencia, que con ello se haya visto afectada la estructura del mercado.
+Derivado de las dos conclusiones anteriores, se puede afirmar que el periodo de excepción otorgado a Avantel fue suficiente para que el operador se ajustara al mercado y se preparara para enfrentar el pago del RAN una vez terminado el mismo.
+
+## Desafíos de implementación de la metodología
+El ejercicio de diferencias en diferencias con control sintético realizado muestra que, efectivamente, esta metodología es aplicable al sector de telecomunicaciones, aunque para ello hay que recordar que el tipo de medidas que se pueden evaluar con esta metodología son aquellas que no afectan de forma global a un mercado, sino únicamente a uno de los operadores, a una región geográfica o a algún otro tipo de partición del mercado. Con el ejercicio realizado se evidencian las ventajas de la aplicación de esta metodología al sector de telecomunicaciones, especialmente para mercados como el de voz móvil donde el número de operadores es pequeño.
+
+Una limitación para la aplicación de la metodología de control sintético al mercado de voz móvil se derivó de que la información sobre los operadores, más allá de la información de su número de usuarios, tarifas y tráfico. En la medida que se pueda disponer de nuevas variables de caracterización, como por ejemplo el número de puntos de atención, el nivel de inversiones, el porcentaje de llamadas que utilizan el servicio de RAN o los gastos en publicidad, podrían lograrse mejores ajustes de los modelos de control sintético.
+
+Al revisar la Agenda Regulatoria de Comunicaciones CRC 2020-2021 (CRC, 2019) se observan algunas actuaciones regulatorias que en su momento podrían evaluarse utilizando la metodología de diferencias en diferencias con control sintético. Específicamente se han identificado:
+
+- Las medidas que se tomen para la promoción del despliegue de infraestructura que se podrían evaluar construyendo el control sintético con información internacional, como lo hizo Casanueva para México.
+- Dentro de estas medidas, el acompañamiento a las autoridades locales para el desarrollo y formulación de Planes de Ordenamiento Territorial alineados a las buenas prácticas para el despliegue de infraestructura y la expedición de acreditaciones de eliminación de barreras al despliegue de infraestructura también podría permitir la construcción de controles sintéticos para los municipios acompañados, a partir de los no beneficiados con esa estrategia.
+- De otra parte, los proyectos de digitalización del régimen de protección de los derechos de los usuarios de servicios de comunicaciones seguramente no se podrán implementar de forma universal, porque en algunas regiones del país la penetración del servicio de Internet es baja. En la medida que esto suceda, o en la medida que se desarrollen proyectos piloto alrededor de este tema, también su impacto podría evaluarse mediante la metodología de control sintético
+
+Otro espacio propicio para la aplicación de la metodología de control sintético se presenta en los proyectos que se desarrollen dentro del Sandbox Regulatorio, espacio en el cual la CRC otorgará espacios de experimentación que permitan a las empresas probar productos, servicios y soluciones originales bajo la supervisión del regulador.
+
+Finalmente, otra medida que podría ser sujeta de evaluación mediante la metodología de diferencias en diferencias con control sintético es la posible declaración de dominancia de Claro. Esta podría tener como dificultad para la aplicación de dicha metodología que, por ser Claro el operador dominante, podrían existir efectos de desborde de los impactos de la medida. Aunque en todo caso, para la aplicación de la metodología, se puede explorar construir el control con base en países de características similares a Colombia, tal como lo hizo Casanueva-Reguart en el caso mexicano.
